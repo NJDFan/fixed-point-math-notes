@@ -113,19 +113,23 @@ and the maximum is :math:`2^{x-1} - R`
 Examples
 --------
 
-=======		============	=====	========	=========
-Format		Resolution		Min		Max			Range
--------		------------	-----	--------	---------
-U8			1				0		255			255
-S8			1				-128	127			255
-U8.2		0.25			0		255.75		255.75
-S8.2		0.25			-128	127.75		255.75
-U0.2		0.25			0		0.75		0.75
-U1.2		0.25			0		2			1.75
-S1.2		0.25			-1		0.75		1.75
-S1.15		3.052e-5		-1		0.999969	1.999969
-U0.16		1.526e-5		0		0.999985	0.999985
-=======		============	=====	========	=========
+The extended columns is the implicit range of the format in
+Extended Number Formats, described in the next section.
+
+=======		============	=====	========	=========	====================
+Format		Resolution		Min		Max			Span		Extended
+-------		------------	-----	--------	---------	--------------------
+U8			1				0		255			255			U8.0 [0, 256)
+S8			1				-128	127			255			S8.0 [-128, 128)
+U8.2		0.25			0		255.75		255.75		U8.2 [0, 256)
+S8.2		0.25			-128	127.75		255.75		S8.2 [-128, 128)
+U0.3		0.125			0		0.875		0.875		U0.3 [0, 1)
+U0.2		0.25			0		0.75		0.75		U0.2 [0, 1)
+U1.2		0.25			0		1.75		1.75		U1.2 [0, 2)
+S1.2		0.25			-1		0.75		1.75		S1.2 [-1, 1)
+S1.15		3.052e-5		-1		0.999969	1.999969	S1.15 [-1, 1)
+U0.16		1.526e-5		0		0.999985	0.999985	U0.16 [0, 1)
+=======		============	=====	========	=========	====================
 
 Extended Number Formats
 =======================
@@ -136,15 +140,15 @@ physical "These bits are these ones and zeros" to the actual number
 they represent.  However, they can lead to overcomplication with real-world
 data, because often we know more about the data than just its representation.
 
-For instance, if a given ADC has an electrical range of +/- 1V, but we know that
-we are using only +/- 0.8V of it to allow for calibration margin, then we will
+For instance, if a given ADC has an electrical range of ±1V, but we know that
+we are using only ±0.8V of it to allow for calibration margin, then we will
 never have the extremal values.  This may simplify downstream math.
 
-To keep track of this, we lightly cheat a notation from real-number set theory.  
+To keep track of this, we lightly cheat a notation from real-number set theory. 
 A number R that can be anywhere from -1 to 1, including exactly -1 and 1, is 
 denoted as [-1, 1].  If that range were -1 to 1 **exclusive** of the end 
-values, it's denoted as (-1, 1).  And if -1 were legal but 1 were not, it would 
-be [-1, 1).
+values, it's denoted as (-1, 1).  And if -1 were included but 1 were not, it 
+would be [-1, 1).
 
 With real numbers, the difference between ] and ) is whether you can get 
 exactly to that number, or merely infinitely close to it.  For our notation, we 
@@ -152,16 +156,25 @@ will simply have a relaxed definition of infinity, and instead be one bit away
 from that value.  So a U8.0 number, with values 0..255, would be more formally 
 defined as U8 [0, 256).  The use of the "almost-but-not-quite" round 
 parenthesis saves a lot of typing once the terms become fractional.  The 
-inherant range of a U8.8 number is from 0 to 255.99609375, i.e. the highest 
+inherent range of a U8.8 number is from 0 to 255.99609375, i.e. the highest 
 possible value is :math:`256 - \frac{1}{256}`.  Expressing this range as
 U8.8 [0, 256), the same as for U8.0, simplifies things.  In both cases, the
 range gets as close to 256 as the resolution of the number allows, but in the
 U8.8 case the resolution of the number is better by 256-fold.
 
+So the extended format is the basic format, with additional range information
+added.  We can leave the range information off when we really do have a full-range
+signal, but should attach it when we know a priori that not the whole number 
+range will be used::
+
+	S1.15  =  S1.15 [-1, 1)
+	      =/= S1.15 (-1, 1)
+	      =/= S1.15 [-0.95, 0.95]
+
 Tracking the ranges becomes more important when values can't extend through
 the full range.  As a basic example: to store the product of an S1.7 * S1.7 
 multiply, you need 16 bits, an S2.14 value.  The reason you need all 16 bits
-is because if both values were -1, the product is +1, or to express it in
+is because if both values were -1.0, the product is +1.0, or to express it in
 binary::
 
 	1.0000000 * 1.0000000 = 01.00000000000000
@@ -173,4 +186,12 @@ value of the multiply could never be +1.  Or to notate it::
 	S1.7 [-1, 1) * S1.7 [-1, 1) = S2.14 [-1, 1]
 	S1.7 [-1, 1) * S1.7 (-1, 1) = S2.14 [-1, 1)
 	
-And the range [-1, 1) only requires S1 to accomodate it.
+And the range [-1, 1) only requires S1 to accommodate it, so the MSB of the
+result can be thrown away, i.e. bit 2 will always have the same value as bit 1,
+and this is redundant.
+
+All arithmatic operations performed on fixed-point numbers wind up needing more 
+bits on the output than the input if all possible values of inputs are legal. 
+As a result, large math pipelines can spiral out of control in terms of number 
+of bits if you keep all of them.  Range-limiting based on the practical values 
+available allows you to throw away unnecessary MSBs to tamp this down.
